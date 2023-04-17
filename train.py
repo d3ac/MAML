@@ -30,4 +30,4 @@ def main(args, net):
         print(mesage)
 
 if __name__ == '__main__':
-    main(config.load_args(), config.load_net())
+    main(config.load_args(), config.load_net()) 
