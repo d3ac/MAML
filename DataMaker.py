@@ -60,7 +60,8 @@ class omniglot:
                     support_y.append([j for _ in range(self.k_shot)])
                     query_x.append(data[current_class][selected_class[self.k_shot:]])
                     query_y.append([j for _ in range(self.k_query)])
-                permutation = np.random.permutation(self.n_way * self.k_shot) # shuffle the support set
+                permutation = np.random.permutation(self.n_way * self.k_shot) # (self.n_way * self.k_shot) total of data
+                support_x = np.array(support_x).reshape(self.n_way * self.k_shot, 1, self.image_size, self.image_size)[permutation] # shuffle the data
                 
 
 
