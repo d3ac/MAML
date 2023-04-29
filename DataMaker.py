@@ -13,7 +13,7 @@ class omniglot:
     the structure of the folders is : language/character/png
     the main content of the data is the alphabet of each language
     """
-    def init_data(args):
+    def init_data(self, args):
         def read_data(name):
             data = []
             resize_method = transforms.Resize((args.image_size, args.image_size))
@@ -34,11 +34,12 @@ class omniglot:
     
     def __init__(self, args):
         if os.path.exists(os.path.join(args.data_path, 'data.npy')):
-            self.train_data, self.test_data = np.load(os.path.join(args.data_path, 'data.npy'))
+            self.train_data, self.test_data = np.load(os.path.join(args.data_path, 'data.npy'), allow_pickle=True)
         else:
             self.train_data, self.test_data = self.init_data(args)
             np.save(os.path.join(args.data_path, 'data.npy'), (self.train_data, self.test_data)) # save the data
-        self.batch_size = args.task_number
+        self.batch_size = args.task_num
+        self.image_size = args.image_size
         self.n_class = self.train_data.shape[0] + self.test_data.shape[0]
         self.n_way = args.n_way # n-way means the taks have n-way classes
         self.k_shot = args.k_spt # k-shot means the task have k-shot samples for each class
@@ -58,15 +59,16 @@ class omniglot:
         data_cache = []
         for sample in range(10): #TODO modify the number of samples
             support_set_feature, support_set_label, query_set_feature, query_set_label = [], [], [], []
-            for i in range(self.batch_size): # batch_size is the number of tasks, also known as meta_batch_size
+            for i in range(self.batch_size): # batch_size is the number of tasks, also known as meta_batch_size (default is 256)
                 support_x, support_y, query_x, query_y = [], [], [], []
                 selected_class = np.random.choice(data.shape[0], self.n_way, replace=False)
                 for j, current_class in enumerate(selected_class): # for each selected class
                     selected_image = np.random.choice(20, self.k_shot+self.k_query, replace=False)
-                    support_x.append(data[current_class][selected_class[:self.k_shot]])
+                    support_x.append(data[current_class][selected_image[:self.k_shot]])
                     support_y.append([j for _ in range(self.k_shot)])
-                    query_x.append(data[current_class][selected_class[self.k_shot:]])
+                    query_x.append(data[current_class][selected_image[self.k_shot:]])
                     query_y.append([j for _ in range(self.k_query)])
+                
                 permutation = np.random.permutation(self.n_way * self.k_shot) # (self.n_way * self.k_shot) total of data
                 support_x = np.array(support_x).reshape(self.n_way * self.k_shot, 1, self.image_size, self.image_size)[permutation] # shuffle the support set
                 support_y = np.array(support_y).reshape(self.n_way * self.k_shot)[permutation]
@@ -77,7 +79,11 @@ class omniglot:
                 # after all the operation this loop, the shape of the data add new dimension: batch_size
                 support_set_feature.append(support_x), support_set_label.append(support_y)
                 query_set_feature.append(query_x), query_set_label.append(query_y)
-            data_cache.append([support_x, support_y, query_x, query_y]) # new dimension: sample
+            support_set_feature = np.array(support_set_feature).astype(np.float32).reshape(self.batch_size, self.n_way * self.k_shot, 1, self.image_size, self.image_size)
+            support_set_label = np.array(support_set_label).astype(np.int).reshape(self.batch_size, self.n_way * self.k_shot)
+            query_set_feature = np.array(query_set_feature).astype(np.float32).reshape(self.batch_size, self.n_way * self.k_query, 1, self.image_size, self.image_size)
+            query_set_label = np.array(query_set_label).astype(np.int).reshape(self.batch_size, self.n_way * self.k_query)
+            data_cache.append([support_set_feature, support_set_label, query_set_feature, query_set_label])
         return data_cache
 
     def next(self, mode):

@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import numpy as np
+import copy
 
 class Meta(nn.Module):
     def __init__(self, args, net):
@@ -40,7 +41,7 @@ class Meta(nn.Module):
             g.data.apply_(lambda x: x * clip_coef) # clip the gradient
         return total_norm / cnt # return the average norm of the gradient
     
-    def forward(self, x_spt, y_spt, x_qry, y_qry, device=torch.device('gpu')):
+    def forward(self, x_spt, y_spt, x_qry, y_qry, device=torch.device('cuda:0')):
         """
         x_spt : support set [batch_size, n_way * k_spt, channel, width, height]
         y_spt : support set [batch_size, n_way * k_spt]
@@ -50,9 +51,9 @@ class Meta(nn.Module):
         task_num, set_size, channel, width, height = x_spt.size() # get the size of the support set
         y_spt = y_spt.long()
         y_qry = y_qry.long()
-        loss_query = np.zeros(self.update_step + 1) # loss of the query set
-        corr_query = np.zeros(self.update_step + 1) # correct number of the query set
-        
+        loss_query = [0 for _ in range(self.update_step + 1)] # loss of the query set
+        corr_query = [0 for _ in range(self.update_step + 1)] # correct number of the query set
+
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.update_lr) # set the optimizer
         x_spt, y_spt, x_qry, y_qry = x_spt.to(device), y_spt.to(device), x_qry.to(device), y_qry.to(device) #TODO speed test, whether it is necessary to move the data to GPU
         
@@ -97,3 +98,38 @@ class Meta(nn.Module):
         loss.backward()
         self.optimizer.step()
         return np.array(corr_query) / (task_num * x_qry.size(1))
+    
+    def finetunning(self, x_spt, y_spt, x_qry, y_qry, device=torch.device('cuda:0')):
+        y_qry = y_qry.long()
+        y_spt = y_spt.long()
+        x_spt, y_spt, x_qry, y_qry = x_spt.to(device), y_spt.to(device), x_qry.to(device), y_qry.to(device)
+        correct = [0 for _ in range(self.update_step_test + 1)]
+        net = copy.deepcopy(self.net)
+        
+        y_hat = net(x_spt)
+        loss = F.cross_entropy(y_hat, y_spt)
+        grad = torch.autograd.grad(loss, net.parameters())
+        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, net.parameters())))
+        
+        # The accuracy of zero shot
+        with torch.no_grad():
+            y_hat = F.softmax(net(x_qry), dim=1).argmax(dim=1)
+            correct[0] = torch.eq(y_hat, y_qry).sum().item()
+        
+        # The accuracy of one shot
+        with torch.no_grad():
+            y_hat = F.softmax(net(x_qry, fast_weights), dim=1).argmax(dim=1)
+            correct[1] = torch.eq(y_hat, y_qry).sum().item()
+        
+        for i in range(1, self.update_step_test):
+            # update once
+            y_hat = net(x_spt, fast_weights)
+            loss = F.cross_entropy(y_hat, y_spt)
+            grad = torch.autograd.grad(loss, fast_weights)
+            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
+            # test
+            with torch.no_grad():
+                y_hat = F.softmax(net(x_qry, fast_weights), dim=1).argmax(dim=1)
+                correct[i + 1] += torch.eq(y_hat, y_qry).sum().item()
+        del net
+        return np.array(correct) / x_qry.size(0)

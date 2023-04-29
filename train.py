@@ -1,13 +1,13 @@
 import torch
 import numpy as np
 import config
-from maml import meta
+from maml import Meta
 from DataMaker import omniglot
 
 def main(args, net):
     # here we can set random seed (ignore)
     device = torch.device(args.device)
-    model = meta(args, net).to(device)
+    model = Meta(args, net).to(device)
     # caculate the number of parameters in the model
     print(f'Total parameters: {sum(map(lambda x: np.prod(x.shape), model.parameters()))}')
     # load the dataset
@@ -17,16 +17,18 @@ def main(args, net):
     acc_list = []
     # train the model
     for step in range(args.epoch):
-        support_task, support_label, query_task, query_label = data_iter.next('train') #TODO remember to move the data to GPU
+        support_task, support_label, query_task, query_label = data_iter.next('train')
+        support_task, support_label, query_task, query_label = torch.from_numpy(support_task), torch.from_numpy(support_label), torch.from_numpy(query_task), torch.from_numpy(query_label)
         acc = model(support_task, support_label, query_task, query_label) # train
         acc_list.append(acc)
         mesage = f'Epoch: {step}, Accuracy: {acc}'
-        if step % 100 == 0: # test the model
+        if step % 50 == 0: # test the model
             support_task, support_label, query_task, query_label = data_iter.next('test')
+            support_task, support_label, query_task, query_label = torch.from_numpy(support_task), torch.from_numpy(support_label), torch.from_numpy(query_task), torch.from_numpy(query_label)
             accs = []
             for support_task_one, support_label_one, query_task_one, query_label_one in zip(support_task, support_label, query_task, query_label):
                 accs.append(model.finetunning(support_task_one, support_label_one, query_task_one, query_label_one))
-            mesage += f', Test Accuracy: {np.mean(accs)}'
+            mesage += f'\nTest Accuracy: {np.array(accs).mean(axis=0).astype(np.float16)}'
         print(mesage)
 
 if __name__ == '__main__':
