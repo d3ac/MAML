@@ -1,5 +1,7 @@
 import argparse
 from torch import nn
+import copy
+import mamlnet
 
 def load_args():
     arg = argparse.ArgumentParser()
@@ -10,7 +12,7 @@ def load_args():
     arg.add_argument('--k_qry', type=int, help='k shot for query set', default=15)
     arg.add_argument('--image_size', type=int, help='image size', default=28) # reduce the size to accelerate
     arg.add_argument('--imgc', type=int, help='image channel', default=1)
-    arg.add_argument('--task_number', type=int, help='meta batch size', default=256)
+    arg.add_argument('--task_number', type=int, help='meta batch size', default=64)
     arg.add_argument('--meta_lr', type=float, help='meta-level outer learning rate', default=1e-3)
     arg.add_argument('--update_lr', type=float, help='task-level inner update learning rate', default=0.4)
     arg.add_argument('--update_step', type=int, help='task-level inner update steps', default=5)
@@ -19,15 +21,24 @@ def load_args():
     arg.add_argument('--data_path', type=str, help='data path', default='data')
     return arg.parse_args()
 
+def create_network():
+    return [
+        ('conv2d', [64, 1, 3, 3, 2, 0]),
+        ('relu', [True]),
+        ('bn', [64]),
+        ('conv2d', [64, 64, 3, 3, 2, 0]),
+        ('relu', [True]),
+        ('bn', [64]),
+        ('conv2d', [64, 64, 3, 3, 2, 0]),
+        ('relu', [True]),
+        ('bn', [64]),
+        ('conv2d', [64, 64, 2, 2, 1, 0]),
+        ('relu', [True]),
+        ('bn', [64]),
+        ('flatten', []),
+        ('linear', [load_args().n_way, 64])
+    ]
+
 def load_net():
-    net = nn.Sequential(
-        nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1), nn.ReLU(),
-        nn.BatchNorm2d(64), 
-        nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(),
-        nn.BatchNorm2d(64), 
-        nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1), nn.ReLU(),
-        nn.BatchNorm2d(64),
-        nn.Flatten(),
-        nn.Linear(256*(load_args().image_size**2), load_args().n_way)
-    )
+    net = mamlnet.Networks(create_network(), load_args())
     return net
